@@ -38,7 +38,7 @@ class BlogMigration(Args):
             else (self.target['portal'], self.target['key'])
         blogs_dict = self.get_blog_titles(key, portal)
         sorted_keys = sorted(blogs_dict.keys())
-        print '\navailable %s blogs:' % option
+        print 'available %s blogs:' % option
         for index, key in enumerate(sorted_keys):
             print "%s: %s" % (index, key)
         blog_selection = raw_input("Please choose a blog:\n>")
