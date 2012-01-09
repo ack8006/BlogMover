@@ -29,7 +29,7 @@ class BlogMigration(Args):
 
         # include comments in the blog migration?
         self.include_comments = True
-        if options.get('--include_comments') and options['--include_comments'].lower() == 'false':
+        if options.get('--include_comments') and options['--include_comments'].lower() != 'true':
             self.include_comments = False
 
     def get_blog_guid(self, option):
