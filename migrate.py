@@ -15,12 +15,13 @@ class Args:
 class BlogMigration(Args):
 
     def __init__(self, options):
-        #set source params
+        # set source params
         self.source = dict()
         self.source['portal'] = options['--source_portal']
         self.source['key'] = options['--source_key'] 
         self.source['guid'] = options.get('--source_blog_guid') or self.get_blog_guid('source')
         
+        # set target params
         self.target = dict()
         self.target['portal'] = options['--target_portal']
         self.target['key'] = options['--target_key']
