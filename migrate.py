@@ -29,9 +29,8 @@ class BlogMigration(Args):
 
         # include comments in the blog migration?
         self.include_comments = True
-        if options.get('--include_comments'):
-            if options['--include_comments'].lower() == 'false':
-                self.include_comments = False
+        if options.get('--include_comments') and options['--include_comments'].lower() == 'false':
+            self.include_comments = False
 
     def get_blog_guid(self, option):
         portal, key = (self.source['portal'], self.source['key']) if option == 'source' \
