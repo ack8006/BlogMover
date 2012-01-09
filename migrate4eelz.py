@@ -7,44 +7,42 @@ import sys
 
 class Args:
     
-    accepted_args = ['--source_portal', '-sp', '--source_key', '-sk', '--target_portal', '-tp', '--target_key', '-tk', '--source_blog_guid', '-sb', '--target_blog_guid', '-tb', '--include_comments', '-ic', '--target_author_email', '-te']
+    accepted_args = ['--source_portal', '-sp', '--source_key', '-sk', '--target_portal', '-tp', '--target_key', '-tk', 
+                     '--source_blog_guid', '-sb', '--target_blog_guid', '-tb', '--include_comments', '-ic', '--target_author_email', '-te']
     required_args = ['--source_portal', '--source_key', '--target_portal', '--target_key', '--target_author_email']
     optional_args = ['--source_blog_guid', '--target_blog_guid', '--include_comments']
 
 class BlogMigration(Args):
 
     def __init__(self, options):
-        self.source_portal = options['--source_portal']
-        self.source_key = options['--source_key']
-        self.target_portal = options['--target_portal']
-        self.target_key = options['--target_key']
-        self.target_author_email = options['--target_author_email']
+        #set source params
+        self.source = dict()
+        self.source['portal'] = options['--source_portal']
+        self.source['key'] = options['--source_key'] 
+        self.source['guid'] = options.get('--source_blog_guid') or self.get_blog_guid('source')
+        
+        self.target = dict()
+        self.target['portal'] = options['--target_portal']
+        self.target['key'] = options['--target_key']
+        self.target['author_email'] = options['--target_author_email']
+        self.target['guid'] = options.get('--target_blog_guid') or self.get_blog_guid('target')
 
-        # set default values for optional params where possible
+        # include comments in the blog migration?
         self.include_comments = True
+        if options.get('--include_comments'):
+            if options['--include_comments'].lower() == 'false':
+                self.include_comments = False
 
-        # fill in optional args if provided - overwrite default values
-        for arg in BlogMigration.optional_args:
-            if arg in options.keys():
-                exec('self.%s = "%s"' % (arg.strip('-'), options[arg]))
-
-        # if we are still missing blog guids, get them
-        if not options.get('--source_blog_guid'):
-            self.make_options('source')
-
-        if not options.get('--target_blog_guid'):
-            self.make_options('target')
-
-    def make_options(self, blog):
-        blogs_dict = self.get_blog_titles(eval("self.%s_key" % blog), eval("self.%s_portal" % blog))
+    def get_blog_guid(self, option):
+        portal, key = (self.source['portal'], self.source['key']) if option == 'source' else (self.target['portal'], self.target['key'])
+        blogs_dict = self.get_blog_titles(key, portal)
         sorted_keys = sorted(blogs_dict.keys())
-        print '\navailable %s blogs:' % blog
+        print '\navailable %s blogs:' % option
         for index, key in enumerate(sorted_keys):
             print "%s: %s" % (index, key)
         blog_selection = raw_input("Please choose a blog:\n>")
-        exec("self.%s_blog_guid = blogs_dict[sorted_keys[int(blog_selection)]]" % blog)
-        return None
-
+        return blogs_dict[sorted_keys[int(blog_selection)]]
+ 
     def get_blogs(self, api_key, portal_id):
         url = 'https://hubapi.com/blog/v1/list.json?hapikey=%s&portalId=%s'
         blogs = json.load(urllib2.urlopen(url % (api_key, portal_id)))
@@ -159,18 +157,19 @@ class BlogMigration(Args):
         return 0
 
     def do_migration(self):
-        posts_to_move = self.get_posts(self.source_blog_guid, self.source_key, self.source_portal)
-        maps_dict = self.make_posts(posts_to_move, self.target_author_email, self.target_blog_guid, self.target_portal, self.target_key)
+        posts_to_move = self.get_posts(self.source['guid'], self.source['key'], self.source['portal'])
+        maps_dict = self.make_posts(posts_to_move, self.target['author_email'], self.target['guid'], self.target['portal'], self.target['key'])
         print maps_dict['urls']
         if self.include_comments:
-            comments_to_move = self.get_comments_for_blog(self.source_blog_guid, self.source_key, self.source_portal)
+            comments_to_move = self.get_comments_for_blog(self.source['guid'], self.source['key'], self.source['portal'])
             updated_comments = self.update_comments(comments_to_move, maps_dict['guids'])
-            self.create_comments(updated_comments, self.target_portal, self.target_key)
+            self.create_comments(updated_comments, self.target['portal'], self.target['key'])
 
 class Parser(Args):
 
     def clean_up_dict(self, options_dict):
-        mappings = {'-sp' : '--source_portal', '-sk' : '--source_key', '-tp' : '--target_portal', '-tk' : '--target_key', '-sb' : '--source_blog_guid', '-tb' : '--target_blog_guid', '-ic' : '--include_comments', '-te' : '--target_author_email'} 
+        mappings = {'-sp' : '--source_portal', '-sk' : '--source_key', '-tp' : '--target_portal', '-tk' : '--target_key', 
+                    '-sb' : '--source_blog_guid', '-tb' : '--target_blog_guid', '-ic' : '--include_comments', '-te' : '--target_author_email'} 
         for key in mappings.keys():
             if key in options_dict.keys():
                 options_dict[mappings[key]] = options_dict[key]
