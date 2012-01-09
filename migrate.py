@@ -4,6 +4,8 @@ import urllib2
 import httplib
 import simplejson as json
 import sys
+import datetime
+
 
 class Args:
     
@@ -32,6 +34,10 @@ class BlogMigration(Args):
         self.include_comments = True
         if options.get('--include_comments') and options['--include_comments'].lower() != 'true':
             self.include_comments = False
+            
+        self.errors = [] #list of dicts, dicts contain single error information
+        self.postLogDict = dict()
+        self.numPosts = 0
 
     def get_blog_guid(self, option):
         portal, key = (self.source['portal'], self.source['key']) if option == 'source' \
@@ -66,6 +72,7 @@ class BlogMigration(Args):
                 running = False
             offset += 100
         print "Got %s blog posts" % len(posts)
+        self.numPosts = len(posts)
         return posts
 
     def get_comments_for_blog(self, blog_guid, api_key, portal_id):
@@ -103,7 +110,8 @@ class BlogMigration(Args):
             print response_body
             return response_body
         print response.read()
-        return response.status
+        self.errors.append({'URLPath':path, 'BlogGuid':blogGuid, 'ResponseCode':str(response.status)})
+        return None
 
     def make_post_comment(self, post_guid, api_key, portal_id, anonyName, anonyEmail, comment, anonyUrl):
         headers = {"Content-type": "application/json"}
@@ -136,9 +144,10 @@ class BlogMigration(Args):
             except Exception as e:
                 print e
                 continue
-            json_resp = json.loads(response)
-            guid_map.append((post['guid'], json_resp['guid']))
-            url_map.append((post['url'], json_resp['url']))
+            if not response == None:
+                json_resp = json.loads(response)
+                guid_map.append((post['guid'], json_resp['guid']))
+                url_map.append((post['url'], json_resp['url']))
         return {'guids': guid_map, 'urls': url_map}
 
     def update_comments(self, comments, guid_map):
@@ -163,11 +172,37 @@ class BlogMigration(Args):
         posts_to_move = self.get_posts(self.source['guid'], self.source['key'], self.source['portal'])
         maps_dict = self.make_posts(posts_to_move, self.target['author_email'], self.target['guid'], 
             self.target['portal'], self.target['key'])
+        
+        self.postLogDict = maps_dict
+        
         print maps_dict['urls']
         if self.include_comments:
             comments_to_move = self.get_comments_for_blog(self.source['guid'], self.source['key'], self.source['portal'])
             updated_comments = self.update_comments(comments_to_move, maps_dict['guids'])
             self.create_comments(updated_comments, self.target['portal'], self.target['key'])
+            
+    def print_migration(self):
+        file = '/Users/atakata/Desktop/log.txt'
+        with open(file, 'w') as f:
+            print >> f, (str(datetime.datetime.now()))
+            print >> f, 'Number of Posts to Be Moved = ' + str(self.numPosts)
+            print >> f, 'ERROR LIST \n'
+            
+            for item in self.errors:
+                f.writelines('Error: \n')
+                for key, val in item.items():
+                    print >> f, ': '.join([key, val])
+                    #guid_map.append((post['guid'], json_resp['guid']))
+                #url_map.append((post['url'], json_resp['url']))
+                #return {'guids': guid_map, 'urls': url_map}
+            print >> f, '\n Migrated Posts \n'
+            
+            for key, val in self.postLogDict.items():
+                print >> f, 'Post:'
+                for item in val:
+                    print >> f, str(item)
+                
+            f.writelines('\n\n\n' + '_______________________________________' + '\n\n')
 
 class Parser(Args):
 
@@ -200,6 +235,7 @@ def main():
         sys.exit(-1)
     migration = BlogMigration(args)
     migration.do_migration()
+    migration.print_migration()
 
 if __name__ == '__main__':
     main()
