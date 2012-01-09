@@ -19,14 +19,20 @@ class BlogMigration(Args):
     def __init__(self, options):
         # set source params
         self.source = dict()
+        
+        results = self.validate_API_Key(options['--source_key'])
+        self.source['key'] = options['--source_key']
+        self.validate_portal(results, options['--source_portal'])
         self.source['portal'] = options['--source_portal']
-        self.source['key'] = options['--source_key'] 
+        
         self.source['guid'] = options.get('--source_blog_guid') or self.get_blog_guid('source')
         
         # set target params
         self.target = dict()
-        self.target['portal'] = options['--target_portal']
+        results = self.validate_API_Key(options['--target_key'])
         self.target['key'] = options['--target_key']
+        self.validate_portal(results, options['--target_portal'])
+        self.target['portal'] = options['--target_portal']
         self.target['author_email'] = options['--target_author_email']
         self.target['guid'] = options.get('--target_blog_guid') or self.get_blog_guid('target')
 
@@ -38,7 +44,27 @@ class BlogMigration(Args):
         self.errors = [] #list of dicts, dicts contain single error information
         self.postLogDict = dict()
         self.numPosts = 0
+    
+    def validate_API_Key(self, key):
+        if key == 'quit':
+            sys.exit(-1)
+        url = 'http://hubapi.com/settings/v1/settings?hapikey=%s' % key
+        try:
+            result = json.load(urllib2.urlopen(url))
+        except Exception as e:
+            newKey = raw_input("API Source Key invalid, please reenter key or enter quit to exit \n")
+            validate_API_Key(newKey)
+        print('key validated')
+        return result
 
+    def validate_portal(self, results, portal):
+        if portal == 'quit':
+            sys.exit(-1)
+        if not str(results[0]['portalId']) == str(portal):
+            newPortal = raw_input("Source Portal invalid, please reenter portal or enter quit to exit \n")
+            validate_portal(results, newPortal)
+        print('portal validated')
+    
     def get_blog_guid(self, option):
         portal, key = (self.source['portal'], self.source['key']) if option == 'source' \
             else (self.target['portal'], self.target['key'])
