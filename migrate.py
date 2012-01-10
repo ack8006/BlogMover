@@ -5,6 +5,7 @@ import httplib
 import simplejson as json
 import sys
 import datetime
+import socket
 
 
 class Args:
@@ -170,7 +171,7 @@ class BlogMigration(Args):
             except Exception as e:
                 print e
                 continue
-            if not response == None:
+            if response:
                 json_resp = json.loads(response)
                 guid_map.append((post['guid'], json_resp['guid']))
                 url_map.append((post['url'], json_resp['url']))
@@ -228,7 +229,7 @@ class BlogMigration(Args):
                 for item in val:
                     print >> f, str(item)
                 
-            f.writelines('\n\n\n' + '_______________________________________' + '\n\n')
+            print >> f, '\n\n _______________________________________ \n'
 
 class Parser(Args):
 
