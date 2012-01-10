@@ -44,14 +44,16 @@ class BlogMigration(Args):
             self.include_comments = False
             
         self.errors = [] #list of dicts, dicts contain single error information
+        self.commentErrors = []
         self.postLogDict = dict()
         self.numPosts = 0
+        self.retries = [1,10,30]
     
     def validate_API_Key(self, key):
         if key == 'quit':
             sys.exit(-1)
         url = 'http://hubapi.com/settings/v1/settings?hapikey=%s' % key
-        e = 'ANDY'
+        e = 'Migrate4EELZZZZZ'
         while e:
             try:
                 url = 'http://hubapi.com/settings/v1/settings?hapikey=%s' % key
@@ -106,6 +108,29 @@ class BlogMigration(Args):
         self.numPosts = len(posts)
         return posts
 
+    def sleep_check(self, stat, path, body, headers):  
+        conn = httplib.HTTPSConnection('hubapi.com')  
+        for sleep_time in self.retries:
+            conn.request(stat, path, body, headers)
+            try:
+                response = conn.getresponse()
+                return response
+            except socket.error:
+                print('Socket Timeout, Will Retry Soon')
+                time.sleep(sleep_time)
+                continue
+            except socket.gaierror:
+                print('GAIError')
+                time.sleep(sleep_time)
+                continue
+            except urllib2.URLError as e:
+                print e
+                time.sleep(sleep_time)
+                continue
+            except Exception as e:
+                break
+        return None
+
     def get_comments_for_blog(self, blog_guid, api_key, portal_id):
         comments = []
         offset = 0
@@ -121,6 +146,7 @@ class BlogMigration(Args):
 
     def make_post_comment(self, post_guid, api_key, portal_id, anonyName, anonyEmail, comment, anonyUrl):
         headers = {"Content-type": "application/json"}
+        retries = [1,10,100]
         body = json.dumps(
             dict(
                 anonyName = anonyName,
@@ -128,18 +154,24 @@ class BlogMigration(Args):
                 comment = comment,
                 anonyUrl = anonyUrl,
                 ))
-        conn = httplib.HTTPSConnection('hubapi.com')
         path = '/blog/v1/posts/%s/comments.json?hapikey=%s&portalId=%s' % (post_guid, api_key, portal_id)
-        conn.request("POST", path, body, headers)
-        response = conn.getresponse()
-        print response.status
-        if response.status < 400:
-            response_body = response.read()
-            print response_body
-            return response_body
-        print response.read()
-        raise Exception("An error ocurred creating a comment on post with ID: %s" % post_guid)
-
+    
+        response = self.sleep_check("POST", path, body, headers)
+        
+        if response:
+            if response.status < 400:
+                response_body = response.read()
+                print response_body
+                return response_body
+            else:
+                print response.read()
+                self.commentErrors.append({'URLPath':path, 'BlogGuid':blogGuid, 'ResponseCode':str(response.status)})
+                raise Exception(str(response.status))
+                #return None
+        else:
+            self.commentErrors.append({'URLPath':path, 'BlogGuid':blogGuid, 'ResponseCode':'SocketError'})
+            return None        
+        
     def make_blog_post(self, blogGuid, api_key, portal_id, authorEmail, body, summary, title, tags, metaDesc, metaKeys):
         headers = {"Content-type": "application/json"}
         retries = [1,10,100]
@@ -153,37 +185,29 @@ class BlogMigration(Args):
                 metaDesc = metaDesc,
                 metaKeys = metaKeys,
                 ))
-        conn = httplib.HTTPSConnection('hubapi.com')
         path = '/blog/v1/%s/posts.json?hapikey=%s&portalId=%s' % (blogGuid, api_key, portal_id)
-        for sleep_time in retries:
-            conn.request("POST", path, body, headers)
-            response = conn.getresponse()
-            print response.status
-            try:
-                response_body = response.read()
-                if response.status < 400:
-                    print response_body
-                    return response_body
-            except socket.timeout:
-                print('Socket Timeout, Will Retry Soon')
-                time.sleep(sleep_time)
-                continue
-            except urllib2.URLError as e:
-                print e
-                time.sleep(sleep_time)
-                continue
-            except Exception as e:
-                break
         
-        print response.read()
-        self.errors.append({'URLPath':path, 'BlogGuid':blogGuid, 'ResponseCode':str(response.status)})
-        raise Exception(str(response.status))
-        #return None
+        response = self.sleep_check("POST", path, body, headers)
+        
+        if response:
+            if response.status < 400:
+                response_body = response.read()
+                print response_body
+                return response_body
+            else:
+                print response.read()
+                self.errors.append({'URLPath':path, 'BlogGuid':blogGuid, 'ResponseCode':str(response.status)})
+                raise Exception(str(response.status))
+                #return None
+        else:
+            self.errors.append({'URLPath':path, 'BlogGuid':blogGuid, 'ResponseCode':'SocketError'})
+            return None
 
     def make_posts(self, posts, email, blog_guid, portal_id, api_key):
         guid_map = []
         url_map = []
         for post in posts:
+            print('New Post')
             try:
                 response = self.make_blog_post(blog_guid, api_key, portal_id, email, post['body'], post['summary'], 
                     post['title'], post['tags'], post['metaDescription'], post['metaKeywords'])
@@ -234,16 +258,19 @@ class BlogMigration(Args):
         with open(file, 'w') as f:
             print >> f, (str(datetime.datetime.now()))
             print >> f, 'Number of Posts to Be Moved = ' + str(self.numPosts)
-            print >> f, 'ERROR LIST \n'
+            print >> f, 'ERROR LIST \nPosts'
             
             for item in self.errors:
-                f.writelines('Error: \n')
+                print >> f, 'Error:'
                 for key, val in item.items():
                     print >> f, ': '.join([key, val])
-                    #guid_map.append((post['guid'], json_resp['guid']))
-                #url_map.append((post['url'], json_resp['url']))
-                #return {'guids': guid_map, 'urls': url_map}
-            print >> f, '\n Migrated Posts \n'
+            print >> f, '\nComment Errors'
+            for item in self.commentErrors:
+                print >> f, 'Error: \n'
+                for key, val in item.items():
+                    print >> f, ': '.join([key, val])        
+                    
+            print >> f, '\nMigrated Posts \n'
             
             for key, val in self.postLogDict.items():
                 print >> f, 'Post:'
