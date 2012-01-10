@@ -6,6 +6,7 @@ import simplejson as json
 import sys
 import datetime
 import socket
+import time
 
 
 class Args:
@@ -50,20 +51,23 @@ class BlogMigration(Args):
         if key == 'quit':
             sys.exit(-1)
         url = 'http://hubapi.com/settings/v1/settings?hapikey=%s' % key
-        try:
-            result = json.load(urllib2.urlopen(url))
-        except Exception as e:
-            newKey = raw_input("API Source Key invalid, please reenter key or enter quit to exit \n")
-            validate_API_Key(newKey)
+        e = 'ANDY'
+        while e:
+            try:
+                url = 'http://hubapi.com/settings/v1/settings?hapikey=%s' % key
+                result = json.load(urllib2.urlopen(url))
+                e = None
+            except Exception as e:
+                key = raw_input("API Source Key invalid, please reenter key or enter quit to exit \n")
+                continue
         print('key validated')
         return result
 
     def validate_portal(self, results, portal):
-        if portal == 'quit':
-            sys.exit(-1)
-        if not str(results[0]['portalId']) == str(portal):
-            newPortal = raw_input("Source Portal invalid, please reenter portal or enter quit to exit \n")
-            validate_portal(results, newPortal)
+        while not str(results[0]['portalId']) == str(portal):
+            if portal == 'quit':
+                sys.exit(-1)
+            portal = raw_input("Source Portal invalid, please reenter portal or enter quit to exit \n")
         print('portal validated')
     
     def get_blog_guid(self, option):
@@ -115,31 +119,6 @@ class BlogMigration(Args):
             offset += 100
         return comments
 
-    def make_blog_post(self, blogGuid, api_key, portal_id, authorEmail, body, summary, title, tags, metaDesc, metaKeys):
-        headers = {"Content-type": "application/json"}
-        body = json.dumps(
-            dict(
-                authorEmail = authorEmail,
-                body = body,
-                summary = summary,
-                title = title,
-                tags = tags,
-                metaDesc = metaDesc,
-                metaKeys = metaKeys,
-                ))
-        conn = httplib.HTTPSConnection('hubapi.com')
-        path = '/blog/v1/%s/posts.json?hapikey=%s&portalId=%s' % (blogGuid, api_key, portal_id)
-        conn.request("POST", path, body, headers)
-        response = conn.getresponse()
-        print response.status
-        if response.status < 400:
-            response_body = response.read()
-            print response_body
-            return response_body
-        print response.read()
-        self.errors.append({'URLPath':path, 'BlogGuid':blogGuid, 'ResponseCode':str(response.status)})
-        return None
-
     def make_post_comment(self, post_guid, api_key, portal_id, anonyName, anonyEmail, comment, anonyUrl):
         headers = {"Content-type": "application/json"}
         body = json.dumps(
@@ -161,6 +140,46 @@ class BlogMigration(Args):
         print response.read()
         raise Exception("An error ocurred creating a comment on post with ID: %s" % post_guid)
 
+    def make_blog_post(self, blogGuid, api_key, portal_id, authorEmail, body, summary, title, tags, metaDesc, metaKeys):
+        headers = {"Content-type": "application/json"}
+        retries = [1,10,100]
+        body = json.dumps(
+            dict(
+                authorEmail = authorEmail,
+                body = body,
+                summary = summary,
+                title = title,
+                tags = tags,
+                metaDesc = metaDesc,
+                metaKeys = metaKeys,
+                ))
+        conn = httplib.HTTPSConnection('hubapi.com')
+        path = '/blog/v1/%s/posts.json?hapikey=%s&portalId=%s' % (blogGuid, api_key, portal_id)
+        for sleep_time in retries:
+            conn.request("POST", path, body, headers)
+            response = conn.getresponse()
+            print response.status
+            try:
+                response_body = response.read()
+                if response.status < 400:
+                    print response_body
+                    return response_body
+            except socket.timeout:
+                print('Socket Timeout, Will Retry Soon')
+                time.sleep(sleep_time)
+                continue
+            except urllib2.URLError as e:
+                print e
+                time.sleep(sleep_time)
+                continue
+            except Exception as e:
+                break
+        
+        print response.read()
+        self.errors.append({'URLPath':path, 'BlogGuid':blogGuid, 'ResponseCode':str(response.status)})
+        raise Exception(str(response.status))
+        #return None
+
     def make_posts(self, posts, email, blog_guid, portal_id, api_key):
         guid_map = []
         url_map = []
@@ -169,12 +188,14 @@ class BlogMigration(Args):
                 response = self.make_blog_post(blog_guid, api_key, portal_id, email, post['body'], post['summary'], 
                     post['title'], post['tags'], post['metaDescription'], post['metaKeywords'])
             except Exception as e:
-                print e
+                print('error =', e)
                 continue
             if response:
                 json_resp = json.loads(response)
                 guid_map.append((post['guid'], json_resp['guid']))
                 url_map.append((post['url'], json_resp['url']))
+                
+        
         return {'guids': guid_map, 'urls': url_map}
 
     def update_comments(self, comments, guid_map):
