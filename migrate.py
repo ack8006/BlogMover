@@ -51,34 +51,32 @@ class BlogMigration(Args):
         self.numPosts = 0
         self.retries = [1,10,30]
     
-        #self.file ='/Users/atakata/Desktop/log.txt'
+        self.file ='/Users/atakata/Desktop/%s.csv'
 
     def get_posts_decorator(targetFunction):
         def _inner(a,b,c,d):
-            with open('/Users/atakata/Desktop/log.csv', 'a') as f:
-                print >> f, str(datetime.datetime.now())
-                print >> f, 'Posts to Copy:', len(targetFunction(a,b,c,d))
+            length = len(targetFunction(a,b,c,d))
+            postsString = ' '.join(['Posts to Copy:', str(length)])
+            print "Got %s blog posts" % length
+            curDate = str(datetime.datetime.now())
+            with open(a.file % 'log', 'a') as f:
+                print >> f, curDate
+                print >> f, 'SourcePortal: ', a.source['portal']
+                print >> f, 'BlogGUID: ', a.source['guid']
+                print >> f, postsString
                 print >> f, 'PostGuid, JSONURL, PostURL, JSONURL'
-            with open('/Users/atakata/Desktop/errorLog.csv', 'a') as f:
-                print >> f, str(datetime.datetime.now())
-                print >> f, 'Posts to Copy:',len(targetFunction(a,b,c,d))
+            with open(a.file %'errorLog', 'a') as f:
+                print >> f, curDate
+                print >> f, 'SourcePortal: ', a.source['portal']
+                print >> f, 'BlogGUID: ', a.source['guid']
+                print >> f, postsString
                 print >> f, 'URLPath, BlogGuid, ResponseCode'
             return targetFunction(a,b,c,d)
         return _inner
-    """
-    def make_post_comment_decorator(targetFunction):
-        def _inner(a,b,c,d,e):
-            with open('/Users/atakata/Desktop/log.txt', 'a') as f:
-                if targetFunction:
-                    print >> f, targetFunction(a,b,c,d,e).status
-                    if targetFunction(a,b,c,d,e).status > 400:
-                        print >> f, 'ERROR'
-            return targetFunction(a,b,c,d,e)
-        return _inner
-     """               
+    
     def error_observer_decorator(targetFunction):
         def _inner(a,b,c,d,e):
-            with open('/Users/atakata/Desktop/errorLog.csv', 'a') as f:
+            with open(a.file %'errorLog', 'a') as f:
                 s = [str(c),str(d),str(e)]
                 d = ', '.join(s)
                 print >> f, d
@@ -87,7 +85,7 @@ class BlogMigration(Args):
     
     def observer_decorator(targetFunction):
         def _inner(a,b,c):
-            with open('/Users/atakata/Desktop/log.csv', 'a') as f:
+            with open(a.file %'log', 'a') as f:
                 t = targetFunction(a,b,c)
                 s = [t['PostGuid']]
                 s.append(t['JSONURL'])
@@ -153,7 +151,6 @@ class BlogMigration(Args):
             if not data:
                 running = False
             offset += 100
-        print "Got %s blog posts" % len(posts)
         self.numPosts = len(posts)
         return posts
 
@@ -323,32 +320,7 @@ class BlogMigration(Args):
             updated_comments = self.update_comments(comments_to_move, maps_dict['guids'])
             self.create_comments(updated_comments, self.target['portal'], self.target['key'])
             
-    def print_migration(self):
-        file = '/Users/atakata/Desktop/log.txt'
-        with open(file, 'w') as f:
-            print >> f, (str(datetime.datetime.now()))
-            print >> f, 'Number of Posts to Be Moved = ' + str(self.numPosts)
-            print >> f, 'ERROR LIST \nPosts'
-            
-            for item in self.errors:
-                print >> f, 'Error:'
-                for key, val in item.items():
-                    print >> f, ': '.join([key, val])
-            print >> f, '\nComment Errors'
-            for item in self.commentErrors:
-                print >> f, 'Error: \n'
-                for key, val in item.items():
-                    print >> f, ': '.join([key, val])        
-                    
-            print >> f, '\nMigrated Posts \n'
-            
-            for key, val in self.postLogDict.items():
-                print >> f, 'Post:'
-                for item in val:
-                    print >> f, str(item)
-                
-            print >> f, '\n\n _______________________________________ \n'
-
+    
 class Parser(Args):
 
     def clean_up_dict(self, options_dict):
