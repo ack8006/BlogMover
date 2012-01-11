@@ -7,6 +7,7 @@ import sys
 import datetime
 import socket
 import time
+import csv
 
 
 class Args:
@@ -15,6 +16,7 @@ class Args:
                     '-tk', '--source_blog_guid', '-sb', '--target_blog_guid', '-tb', '--include_comments', '-ic', 
                     '--target_author_email', '-te']
     required_args = ['--source_portal', '--source_key', '--target_portal', '--target_key', '--target_author_email']
+
 
 class BlogMigration(Args):
 
@@ -48,6 +50,52 @@ class BlogMigration(Args):
         self.postLogDict = dict()
         self.numPosts = 0
         self.retries = [1,10,30]
+    
+        #self.file ='/Users/atakata/Desktop/log.txt'
+
+    def get_posts_decorator(targetFunction):
+        def _inner(a,b,c,d):
+            with open('/Users/atakata/Desktop/log.csv', 'a') as f:
+                print >> f, str(datetime.datetime.now())
+                print >> f, 'Posts to Copy:', len(targetFunction(a,b,c,d))
+                print >> f, 'PostGuid, JSONURL, PostURL, JSONURL'
+            with open('/Users/atakata/Desktop/errorLog.csv', 'a') as f:
+                print >> f, str(datetime.datetime.now())
+                print >> f, 'Posts to Copy:',len(targetFunction(a,b,c,d))
+                print >> f, 'URLPath, BlogGuid, ResponseCode'
+            return targetFunction(a,b,c,d)
+        return _inner
+    """
+    def make_post_comment_decorator(targetFunction):
+        def _inner(a,b,c,d,e):
+            with open('/Users/atakata/Desktop/log.txt', 'a') as f:
+                if targetFunction:
+                    print >> f, targetFunction(a,b,c,d,e).status
+                    if targetFunction(a,b,c,d,e).status > 400:
+                        print >> f, 'ERROR'
+            return targetFunction(a,b,c,d,e)
+        return _inner
+     """               
+    def error_observer_decorator(targetFunction):
+        def _inner(a,b,c,d,e):
+            with open('/Users/atakata/Desktop/errorLog.csv', 'a') as f:
+                s = [str(c),str(d),str(e)]
+                d = ', '.join(s)
+                print >> f, d
+            return targetFunction(a,b,c,d,e)
+        return _inner
+    
+    def observer_decorator(targetFunction):
+        def _inner(a,b,c):
+            with open('/Users/atakata/Desktop/log.csv', 'a') as f:
+                t = targetFunction(a,b,c)
+                s = [t['PostGuid']]
+                s.append(t['JSONURL'])
+                s.append(t['PostURL'])
+                s.append(t['JSONGuid'])
+                print >> f, ', '.join(s)
+            return targetFunction(a,b,c)
+        return _inner
     
     def validate_API_Key(self, key):
         if key == 'quit':
@@ -92,7 +140,8 @@ class BlogMigration(Args):
         blogs = self.get_blogs(api_key, portal_id)
         blog_title_dict = dict((blog['blogTitle'], blog['guid']) for blog in blogs)
         return blog_title_dict
-
+    
+    @get_posts_decorator
     def get_posts(self, blog_guid, api_key, portal_id):
         posts = []
         offset = 0
@@ -159,18 +208,32 @@ class BlogMigration(Args):
         response = self.sleep_check("POST", path, body, headers)
         
         if response:
+            print response.status
             if response.status < 400:
                 response_body = response.read()
                 print response_body
                 return response_body
             else:
-                print response.read()
-                self.commentErrors.append({'URLPath':path, 'BlogGuid':blogGuid, 'ResponseCode':str(response.status)})
+                self.error_comment_observer(response, path, blogGuid, response.status)
                 raise Exception(str(response.status))
                 #return None
         else:
-            self.commentErrors.append({'URLPath':path, 'BlogGuid':blogGuid, 'ResponseCode':'SocketError'})
-            return None        
+            self.error_comment_observer(response, path, blogGuid, response.status)
+            return None
+        
+    @error_observer_decorator
+    def error_comment_observer(self, response, path, blogGuid, status):
+        print response.read()
+        errorDict = {'URLPath':path, 'BlogGuid':blogGuid, 'ResponseCode':status}
+        self.commentErrors.append(errorDict)
+        return errorDict
+    
+    @error_observer_decorator    
+    def error_observer(self, response, path, blogGuid, status):
+        print('Error Observer =',response.read())
+        errorDict = {'URLPath':path, 'BlogGuid':blogGuid, 'ResponseCode':status}
+        self.errors.append(errorDict)
+        return errorDict 
         
     def make_blog_post(self, blogGuid, api_key, portal_id, authorEmail, body, summary, title, tags, metaDesc, metaKeys):
         headers = {"Content-type": "application/json"}
@@ -189,20 +252,28 @@ class BlogMigration(Args):
         
         response = self.sleep_check("POST", path, body, headers)
         
+        print('responseresponse')
+        print response
+        
         if response:
+            print('RESPONSESTATUS:', response.status)
             if response.status < 400:
                 response_body = response.read()
                 print response_body
                 return response_body
             else:
-                print response.read()
-                self.errors.append({'URLPath':path, 'BlogGuid':blogGuid, 'ResponseCode':str(response.status)})
+                print('ERRORFOUNDHERE')
+                self.error_observer(response, path, blogGuid, response.status)
                 raise Exception(str(response.status))
                 #return None
         else:
-            self.errors.append({'URLPath':path, 'BlogGuid':blogGuid, 'ResponseCode':'SocketError'})
+            self.error_observer(path, response, blogGuid, response.status)
             return None
-
+    
+    @observer_decorator
+    def post_observer(self, post, json):
+        return {'PostGuid' : post['guid'], 'PostURL':post['url'], 'JSONGuid':json['guid'], 'JSONURL':json['url']}
+    
     def make_posts(self, posts, email, blog_guid, portal_id, api_key):
         guid_map = []
         url_map = []
@@ -216,6 +287,7 @@ class BlogMigration(Args):
                 continue
             if response:
                 json_resp = json.loads(response)
+                self.post_observer(post, json_resp)
                 guid_map.append((post['guid'], json_resp['guid']))
                 url_map.append((post['url'], json_resp['url']))
                 
@@ -237,8 +309,6 @@ class BlogMigration(Args):
                 print response
             except Exception as e:
                 print >> sys.stderr, e
-                continue
-        return 0
 
     def do_migration(self):
         posts_to_move = self.get_posts(self.source['guid'], self.source['key'], self.source['portal'])
