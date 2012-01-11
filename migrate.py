@@ -7,7 +7,6 @@ import sys
 import datetime
 import socket
 import time
-import csv
 
 
 class Args:
@@ -45,10 +44,6 @@ class BlogMigration(Args):
         if options.get('--include_comments') and options['--include_comments'].lower() != 'true':
             self.include_comments = False
             
-        self.errors = [] #list of dicts, dicts contain single error information
-        self.commentErrors = []
-        self.postLogDict = dict()
-        self.numPosts = 0
         self.retries = [1,10,30]
     
         self.file ='/Users/atakata/Desktop/%s.csv'
@@ -64,7 +59,7 @@ class BlogMigration(Args):
                 print >> f, 'SourcePortal: ', a.source['portal']
                 print >> f, 'BlogGUID: ', a.source['guid']
                 print >> f, postsString
-                print >> f, 'PostGuid, JSONURL, PostURL, JSONURL'
+                print >> f, 'PostGuid, JSONURL, PostURL, JSONGuid'
             with open(a.file %'errorLog', 'a') as f:
                 print >> f, curDate
                 print >> f, 'SourcePortal: ', a.source['portal']
@@ -87,10 +82,7 @@ class BlogMigration(Args):
         def _inner(a,b,c):
             with open(a.file %'log', 'a') as f:
                 t = targetFunction(a,b,c)
-                s = [t['PostGuid']]
-                s.append(t['JSONURL'])
-                s.append(t['PostURL'])
-                s.append(t['JSONGuid'])
+                s = [t['PostGuid'], t['JSONURL'], t['PostURL'], t['JSONGuid']]
                 print >> f, ', '.join(s)
             return targetFunction(a,b,c)
         return _inner
@@ -151,7 +143,6 @@ class BlogMigration(Args):
             if not data:
                 running = False
             offset += 100
-        self.numPosts = len(posts)
         return posts
 
     def sleep_check(self, stat, path, body, headers):  
@@ -222,14 +213,12 @@ class BlogMigration(Args):
     def error_comment_observer(self, response, path, blogGuid, status):
         print response.read()
         errorDict = {'URLPath':path, 'BlogGuid':blogGuid, 'ResponseCode':status}
-        self.commentErrors.append(errorDict)
         return errorDict
     
     @error_observer_decorator    
     def error_observer(self, response, path, blogGuid, status):
         print('Error Observer =',response.read())
         errorDict = {'URLPath':path, 'BlogGuid':blogGuid, 'ResponseCode':status}
-        self.errors.append(errorDict)
         return errorDict 
         
     def make_blog_post(self, blogGuid, api_key, portal_id, authorEmail, body, summary, title, tags, metaDesc, metaKeys):
@@ -311,8 +300,6 @@ class BlogMigration(Args):
         posts_to_move = self.get_posts(self.source['guid'], self.source['key'], self.source['portal'])
         maps_dict = self.make_posts(posts_to_move, self.target['author_email'], self.target['guid'], 
             self.target['portal'], self.target['key'])
-        
-        self.postLogDict = maps_dict
         
         print maps_dict['urls']
         if self.include_comments:
